@@ -1,0 +1,533 @@
+[
+  {
+    "id": "tab_airguard",
+    "type": "tab",
+    "label": "AirGuard IoT",
+    "disabled": false,
+    "info": "AirGuard - Grupo 04 (UPM). Regras R1-R5, MQTT e OpenWeather.",
+    "env": [
+      {
+        "name": "OPENWEATHER_KEY",
+        "value": "COLE_SUA_CHAVE_AQUI",
+        "type": "str"
+      },
+      {
+        "name": "CIDADE",
+        "value": "Sao Paulo,BR",
+        "type": "str"
+      }
+    ]
+  },
+  {
+    "id": "broker_hivemq",
+    "type": "mqtt-broker",
+    "name": "HiveMQ publico",
+    "broker": "broker.hivemq.com",
+    "port": "1883",
+    "clientid": "",
+    "autoConnect": true,
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": "30",
+    "cleansession": true,
+    "autoUnsubscribe": true,
+    "birthTopic": "",
+    "birthQos": "0",
+    "birthPayload": "",
+    "birthMsg": {},
+    "closeTopic": "",
+    "closeQos": "0",
+    "closePayload": "",
+    "closeMsg": {},
+    "willTopic": "",
+    "willQos": "0",
+    "willPayload": "",
+    "willMsg": {},
+    "userProps": "",
+    "sessionExpiry": ""
+  },
+  {
+    "id": "c1",
+    "type": "comment",
+    "z": "tab_airguard",
+    "name": "Dispositivo 1 -> regras -> comando ao Dispositivo 2",
+    "info": "",
+    "x": 260,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "in_tel",
+    "type": "mqtt in",
+    "z": "tab_airguard",
+    "name": "Telemetria D1",
+    "topic": "airguard-upm/d1/telemetria",
+    "qos": "1",
+    "datatype": "json",
+    "broker": "broker_hivemq",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 150,
+    "y": 100,
+    "wires": [
+      [
+        "f_r12"
+      ]
+    ]
+  },
+  {
+    "id": "f_r12",
+    "type": "function",
+    "z": "tab_airguard",
+    "name": "R1 validar + R2 CO2",
+    "func": "// R1: validacao  |  R2: CO2 estimado a partir do valor bruto do sensor de gas (0-4095)\nconst p = msg.payload;\nif (typeof p !== 'object' || p === null) { node.warn('R1: payload invalido'); return null; }\nconst { temperatura, umidade, gas } = p;\nconst ok = [temperatura, umidade, gas].every(v => typeof v === 'number' && isFinite(v));\nif (!ok) { node.warn('R1: campos ausentes ou nao numericos'); return null; }\nif (gas < 0 || gas > 4095 || temperatura < -40 || temperatura > 80 || umidade < 0 || umidade > 100) {\n    node.warn('R1: leitura fora da faixa, descartada'); return null;\n}\nconst co2 = Math.round(400 + (gas / 4095) * 1600);   // ppm (400 a 2000)\nmsg.payload = { temperatura, umidade, gas, co2 };\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 380,
+    "y": 100,
+    "wires": [
+      [
+        "f_r345"
+      ]
+    ]
+  },
+  {
+    "id": "f_r345",
+    "type": "function",
+    "z": "tab_airguard",
+    "name": "R3 classe + R4 exaustor + R5 contexto",
+    "func": "// R3: classificacao | R4: exaustor com histerese | R5: contexto externo\nconst LEITURAS_RUIM = 3;   // leituras consecutivas 'Ruim' para ligar\nconst LIMITE_OFF    = 800; // ppm abaixo do qual desliga (histerese)\nconst d = msg.payload;\nconst classe = d.co2 < 700 ? 'Boa' : (d.co2 <= 1000 ? 'Moderada' : 'Ruim');\n\nlet ruins = flow.get('ruins') || 0;\nruins = (classe === 'Ruim') ? ruins + 1 : 0;\nflow.set('ruins', ruins);\n\nconst atual = flow.get('exaustor') || 'OFF';\nlet novo = atual;\nif (atual === 'OFF' && ruins >= LEITURAS_RUIM) novo = 'ON';\nelse if (atual === 'ON' && d.co2 < LIMITE_OFF) novo = 'OFF';\n\nconst ext = flow.get('ext') || null;\nlet recomendacao = '';\nif (classe === 'Ruim') {\n    if (ext && ext.temperatura >= 18 && ext.temperatura <= 28)\n        recomendacao = 'Ar interno ruim e externo ameno (' + ext.temperatura + ' C): ventilacao natural viavel';\n    else\n        recomendacao = 'Ar interno ruim: acionar exaustor';\n}\nd.classe = classe; d.leituras_ruim = ruins; d.exaustor = novo; d.externo = ext; d.recomendacao = recomendacao;\n\nconst saida1 = { payload: d };\nlet saida2 = null;\nif (novo !== atual) {\n    flow.set('exaustor', novo);\n    saida2 = { topic: 'airguard-upm/d2/comando', payload: novo, co2: d.co2 };\n}\nreturn [saida1, saida2];",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 650,
+    "y": 100,
+    "wires": [
+      [
+        "d_proc",
+        "f_i_med"
+      ],
+      [
+        "out_cmd",
+        "d_cmd",
+        "f_i_evt"
+      ]
+    ]
+  },
+  {
+    "id": "d_proc",
+    "type": "debug",
+    "z": "tab_airguard",
+    "name": "Dado processado",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 900,
+    "y": 80,
+    "wires": []
+  },
+  {
+    "id": "out_cmd",
+    "type": "mqtt out",
+    "z": "tab_airguard",
+    "name": "Comando D2",
+    "topic": "",
+    "qos": "1",
+    "retain": "true",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "broker_hivemq",
+    "x": 900,
+    "y": 140,
+    "wires": []
+  },
+  {
+    "id": "d_cmd",
+    "type": "debug",
+    "z": "tab_airguard",
+    "name": "Comando enviado",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 900,
+    "y": 180,
+    "wires": []
+  },
+  {
+    "id": "in_est",
+    "type": "mqtt in",
+    "z": "tab_airguard",
+    "name": "Estado D2",
+    "topic": "airguard-upm/d2/estado",
+    "qos": "1",
+    "datatype": "utf8",
+    "broker": "broker_hivemq",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 150,
+    "y": 260,
+    "wires": [
+      [
+        "f_est"
+      ]
+    ]
+  },
+  {
+    "id": "f_est",
+    "type": "function",
+    "z": "tab_airguard",
+    "name": "Sincronizar estado do exaustor",
+    "func": "// Sincroniza o estado do exaustor com o que o Dispositivo 2 informa\nconst s = String(msg.payload).trim().toUpperCase();\nif (s === 'ON' || s === 'OFF') { flow.set('exaustor', s); node.status({text: 'exaustor ' + s}); }\nreturn null;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 420,
+    "y": 260,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "in_st",
+    "type": "mqtt in",
+    "z": "tab_airguard",
+    "name": "Status D1",
+    "topic": "airguard-upm/d1/status",
+    "qos": "1",
+    "datatype": "utf8",
+    "broker": "broker_hivemq",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 150,
+    "y": 320,
+    "wires": [
+      [
+        "d_st"
+      ]
+    ]
+  },
+  {
+    "id": "d_st",
+    "type": "debug",
+    "z": "tab_airguard",
+    "name": "Status D1",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 400,
+    "y": 320,
+    "wires": []
+  },
+  {
+    "id": "c2",
+    "type": "comment",
+    "z": "tab_airguard",
+    "name": "R5 - contexto externo (OpenWeather), a cada 10 min",
+    "info": "",
+    "x": 260,
+    "y": 400,
+    "wires": []
+  },
+  {
+    "id": "inj",
+    "type": "inject",
+    "z": "tab_airguard",
+    "name": "a cada 10 min",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "600",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "2",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 150,
+    "y": 450,
+    "wires": [
+      [
+        "f_url"
+      ]
+    ]
+  },
+  {
+    "id": "f_url",
+    "type": "function",
+    "z": "tab_airguard",
+    "name": "Montar URL OpenWeather",
+    "func": "const key = env.get('OPENWEATHER_KEY');\nconst cidade = env.get('CIDADE') || 'Sao Paulo,BR';\nif (!key || key.startsWith('COLE')) { node.warn('OPENWEATHER_KEY nao configurada (aba AirGuard IoT > Propriedades > Variaveis de ambiente)'); return null; }\nmsg.url = 'https://api.openweathermap.org/data/2.5/weather?q=' + encodeURIComponent(cidade) + '&appid=' + key + '&units=metric&lang=pt_br';\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 380,
+    "y": 450,
+    "wires": [
+      [
+        "http"
+      ]
+    ]
+  },
+  {
+    "id": "http",
+    "type": "http request",
+    "z": "tab_airguard",
+    "name": "OpenWeather",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 620,
+    "y": 450,
+    "wires": [
+      [
+        "f_ext"
+      ]
+    ]
+  },
+  {
+    "id": "f_ext",
+    "type": "function",
+    "z": "tab_airguard",
+    "name": "Guardar contexto externo",
+    "func": "// R5: guarda o contexto externo; em caso de erro mantem o ultimo valor\nif (msg.statusCode !== 200 || !msg.payload || !msg.payload.main) {\n    node.warn('OpenWeather: falha (HTTP ' + msg.statusCode + '), mantendo ultimo valor'); return null;\n}\nconst p = msg.payload;\nconst ext = { temperatura: p.main.temp, umidade: p.main.humidity, descricao: (p.weather && p.weather[0]) ? p.weather[0].description : '' };\nflow.set('ext', ext);\nmsg.payload = ext;\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 850,
+    "y": 450,
+    "wires": [
+      [
+        "d_ext",
+        "f_i_ext"
+      ]
+    ]
+  },
+  {
+    "id": "d_ext",
+    "type": "debug",
+    "z": "tab_airguard",
+    "name": "Clima externo",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 1080,
+    "y": 450,
+    "wires": []
+  },
+  {
+    "id": "catch",
+    "type": "catch",
+    "z": "tab_airguard",
+    "name": "Erros",
+    "scope": null,
+    "uncaught": false,
+    "x": 150,
+    "y": 520,
+    "wires": [
+      [
+        "d_err"
+      ]
+    ]
+  },
+  {
+    "id": "d_err",
+    "type": "debug",
+    "z": "tab_airguard",
+    "name": "Erro",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "error.message",
+    "targetType": "msg",
+    "x": 360,
+    "y": 520,
+    "wires": []
+  },
+  {
+    "id": "influx_cfg",
+    "type": "influxdb",
+    "hostname": "127.0.0.1",
+    "port": "8086",
+    "protocol": "http",
+    "database": "database",
+    "name": "InfluxDB Cloud",
+    "usetls": true,
+    "tls": "",
+    "influxdbVersion": "2.0",
+    "url": "https://COLE-A-URL-DO-SEU-INFLUXDB-CLOUD",
+    "timeout": "10",
+    "rejectUnauthorized": true
+  },
+  {
+    "id": "c3",
+    "type": "comment",
+    "z": "tab_airguard",
+    "name": "Gravacao no InfluxDB Cloud (bucket airguard)",
+    "info": "",
+    "x": 240,
+    "y": 580,
+    "wires": []
+  },
+  {
+    "id": "f_i_med",
+    "type": "function",
+    "z": "tab_airguard",
+    "name": "-> qualidade_ar_interna",
+    "func": "const d = msg.payload;\nmsg.payload = [\n  { temperatura: d.temperatura, umidade: d.umidade, gas: d.gas, co2: d.co2, leituras_ruim: d.leituras_ruim, exaustor_on: d.exaustor === 'ON' ? 1 : 0 },\n  { classe: d.classe, dispositivo: 'd1' }\n];\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 420,
+    "y": 640,
+    "wires": [
+      [
+        "i_med"
+      ]
+    ]
+  },
+  {
+    "id": "i_med",
+    "type": "influxdb out",
+    "z": "tab_airguard",
+    "influxdb": "influx_cfg",
+    "name": "qualidade_ar_interna",
+    "measurement": "qualidade_ar_interna",
+    "precision": "",
+    "retentionPolicy": "",
+    "database": "database",
+    "precisionV18FluxV20": "ms",
+    "retentionPolicyV18Flux": "",
+    "org": "SUA_ORGANIZACAO",
+    "bucket": "airguard",
+    "x": 680,
+    "y": 640,
+    "wires": []
+  },
+  {
+    "id": "f_i_evt",
+    "type": "function",
+    "z": "tab_airguard",
+    "name": "-> eventos_atuador",
+    "func": "msg.payload = [\n  { comando: msg.payload === 'ON' ? 1 : 0, co2: msg.co2 },\n  { estado: msg.payload, origem: 'node-red' }\n];\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 420,
+    "y": 700,
+    "wires": [
+      [
+        "i_evt"
+      ]
+    ]
+  },
+  {
+    "id": "i_evt",
+    "type": "influxdb out",
+    "z": "tab_airguard",
+    "influxdb": "influx_cfg",
+    "name": "eventos_atuador",
+    "measurement": "eventos_atuador",
+    "precision": "",
+    "retentionPolicy": "",
+    "database": "database",
+    "precisionV18FluxV20": "ms",
+    "retentionPolicyV18Flux": "",
+    "org": "SUA_ORGANIZACAO",
+    "bucket": "airguard",
+    "x": 680,
+    "y": 700,
+    "wires": []
+  },
+  {
+    "id": "f_i_ext",
+    "type": "function",
+    "z": "tab_airguard",
+    "name": "-> clima_externo",
+    "func": "const e = msg.payload;\nmsg.payload = [\n  { temperatura: e.temperatura, umidade: e.umidade },\n  { descricao: e.descricao || 'n/d' }\n];\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 420,
+    "y": 760,
+    "wires": [
+      [
+        "i_ext"
+      ]
+    ]
+  },
+  {
+    "id": "i_ext",
+    "type": "influxdb out",
+    "z": "tab_airguard",
+    "influxdb": "influx_cfg",
+    "name": "clima_externo",
+    "measurement": "clima_externo",
+    "precision": "",
+    "retentionPolicy": "",
+    "database": "database",
+    "precisionV18FluxV20": "ms",
+    "retentionPolicyV18Flux": "",
+    "org": "SUA_ORGANIZACAO",
+    "bucket": "airguard",
+    "x": 680,
+    "y": 760,
+    "wires": []
+  }
+]
