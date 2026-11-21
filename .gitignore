@@ -1,0 +1,6 @@
+.env
+*.zip
+node_modules/
+flows_cred.json
+.config.*.json
+.node-red/
