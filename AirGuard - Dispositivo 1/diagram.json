@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "author": "Konrado Ribeiro",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 57.6, "left": 24.04, "attrs": {} },
+    { "type": "wokwi-dht22", "id": "dht1", "top": 105.9, "left": -149.4, "attrs": {} },
+    { "type": "wokwi-potentiometer", "id": "pot1", "top": -97.3, "left": 9.4, "attrs": {} }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "dht1:SDA", "esp:15", "green", [ "v0" ] ],
+    [ "pot1:SIG", "esp:3V3", "green", [ "v0" ] ],
+    [ "pot1:SIG", "esp:34", "green", [ "v0" ] ],
+    [ "pot1:VCC", "esp:3V3", "red", [ "v0" ] ],
+    [ "dht1:VCC", "esp:3V3", "red", [ "v0" ] ],
+    [ "pot1:GND", "dht1:GND", "black", [ "v0" ] ]
+  ],
+  "dependencies": {}
+}
