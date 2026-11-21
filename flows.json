@@ -16,7 +16,7 @@
         "env": [
             {
                 "name": "OPENWEATHER_KEY",
-                "value": "value": "COLE_SUA_CHAVE_AQUI",
+                "value": "COLE_SUA_CHAVE_AQUI",
                 "type": "str"
             },
             {
