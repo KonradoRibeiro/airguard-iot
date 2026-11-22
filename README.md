@@ -81,6 +81,6 @@ docs/           documentação complementar
 
 ## Links
 
-- Vídeo de apresentação: _adicionar link do YouTube_
+- Vídeo de apresentação: https://www.youtube.com/watch?v=K-wyigap5oY&t=1s
 - Wokwi Dispositivo 1: https://wokwi.com/projects/481053124865694721
 - Wokwi Dispositivo 2: https://wokwi.com/projects/481053921174396929
